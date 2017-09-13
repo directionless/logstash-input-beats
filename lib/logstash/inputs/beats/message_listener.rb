@@ -35,6 +35,42 @@ module LogStash module Inputs class Beats
         input.logger.warn("Could not retrieve remote IP address for beats input.")
       end
 
+      # Add TLS info to metadata
+      #
+      # Uses nested begin blocks to allow somewhat more graceful failing.
+      begin
+        # grab the tls_session. If we throw an exception, fall out of
+        # the block and don't set any TLS parameters.
+        tls_session = ctx.pipeline().context('ssl-handler').handler().engine().getSession()
+        tls_principal = ''
+        tls_protocol = ''
+        tls_verified = false
+
+        begin
+          tls_protocol = tls_session.getProtocol()
+          tls_principal = tls_session.getPeerPrincipal().getName()
+        rescue
+          if input.logger.debug?
+            input.logger.warn("Failed to get tls parameters for message")
+          end
+        end
+
+        # This should throw SSLPeerUnverifiedException if unverified
+        begin
+          tls_session.getPeerCertificates()
+          tls_verified = true
+        rescue
+          if input.logger.debug?
+            input.logger.warn("Failed to get tls peer certs. Assuming unverified")
+          end
+
+        end
+
+        hash.get("@metadata").put("tls_principal", tls_principal)
+        hash.get("@metadata").put("tls_protocol", tls_protocol)
+        hash.get("@metadata").put("tls_verified", tls_verified)
+      end
+
       target_field = extract_target_field(hash)
 
       if target_field.nil?
